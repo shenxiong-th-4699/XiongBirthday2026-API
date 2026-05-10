@@ -1,0 +1,186 @@
+const functions = require("firebase-functions");
+const admin = require("firebase-admin");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+
+admin.initializeApp();
+const db = getFirestore("xiong-birthday-2026");
+
+// 1. API: Save Donate (บันทึกข้อมูลแบบละเอียด)
+exports.saveDonate = functions.https.onRequest(async (req, res) => {
+    if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
+
+    try {
+        const d = req.body;
+        const newDonate = {
+            user_id: d.user_id,
+            donator_name: d.donator_name, // ชื่อที่อยากแสดง
+            amount: Number(d.amount),
+            transferred_date: d.transferred_date, // วันเวลาโอนในสลิป
+            bank: d.bank,
+            sender_account: d.sender_account, // บัญชีผู้โอน
+            sender_name: d.sender_name, // ชื่อผู้โอน
+            ref_code: d.ref_code,
+            slip_image: d.slip_image, // URL รูป
+            created_at: FieldValue.serverTimestamp()
+        };
+
+        await db.collection("donate").add(newDonate);
+        res.status(200).json({ success: true, message: "บันทึกข้อมูลแล้ว" });
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+});
+
+// 2. API: Get Donation All (แสดงข้อมูลทั้งหมด)
+exports.getDonationAll = functions.https.onRequest(async (req, res) => {
+    try {
+        const snapshot = await db.collection("donate")
+            .orderBy("created_at", "desc")
+            .get();
+
+        let allData = [];
+        let grandTotal = 0;
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            // แปลงเป็น timestamp number
+            if (data.created_at && typeof data.created_at.toMillis === 'function') {
+                data.created_at = data.created_at.toMillis();
+            }
+            if (data.transferred_date && typeof data.transferred_date.toMillis === 'function') {
+                data.transferred_date = data.transferred_date.toMillis();
+            }
+            allData.push({ id: doc.id, ...data });
+            grandTotal += Number(data.amount || 0);
+        });
+
+        res.status(200).json({
+            grand_total: grandTotal,
+            data: allData // จะเห็นครบทุกฟิลด์: bank, sender_account, ฯลฯ
+        });
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+});
+
+// 3. API: Save User (Check if exists by x_id, then save with Auto ID and return data)
+exports.saveUser = functions.https.onRequest(async (req, res) => {
+    if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
+
+    try {
+        // รับค่า x_id, username, account, และ profile_url
+        const { x_id, username, account, profile_url } = req.body;
+
+        if (!x_id) return res.status(400).send("Missing x_id");
+
+        // ค้นหาว่ามี User ที่มี x_id นี้ในระบบหรือยัง
+        const usersRef = db.collection("users");
+        const snapshot = await usersRef.where("x_id", "==", x_id).limit(1).get();
+
+        let userData;
+
+        if (snapshot.empty) {
+            // กรณีไม่มีข้อมูล: สร้างใหม่โดยใช้ Auto ID
+            const newUserRef = usersRef.doc(); // สร้าง Auto ID อัตโนมัติ
+            const newUserData = {
+                user_id: newUserRef.id, // นำ Auto ID ที่ได้มาเก็บเป็นฟิลด์ user_id
+                x_id,
+                username: username || "",
+                account: account || "",
+                profile_url: profile_url || "", // เก็บรูปโปรไฟล์
+                created_at: FieldValue.serverTimestamp(),
+                last_login: FieldValue.serverTimestamp()
+            };
+            await newUserRef.set(newUserData);
+
+            // ดึงข้อมูลที่เพิ่งเซฟเพื่อเอาค่า Timestamp ที่แท้จริง
+            const savedDoc = await newUserRef.get();
+            userData = savedDoc.data();
+        } else {
+            // กรณีมีข้อมูลอยู่แล้ว: ไม่บันทึกซ้ำ ให้ดึงข้อมูลเดิมกลับไปคืนเลยตามที่คุณต้องการ
+            userData = snapshot.docs[0].data();
+        }
+
+        // แปลง Timestamp ของ Firestore เป็น Timestamp Number (milliseconds) เพื่อให้แสดงผลใน JSON ได้ถูกต้อง
+        if (userData.created_at && typeof userData.created_at.toMillis === 'function') {
+            userData.created_at = userData.created_at.toMillis();
+        }
+        if (userData.last_login && typeof userData.last_login.toMillis === 'function') {
+            userData.last_login = userData.last_login.toMillis();
+        }
+
+        res.status(200).json({
+            success: true,
+            data: userData
+        });
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+});
+
+// 4. API: Get User Info & Donations by x_id
+exports.getUserInfoByXid = functions.https.onRequest(async (req, res) => {
+    if (req.method !== "GET") return res.status(405).send("Method Not Allowed");
+
+    try {
+        const x_id = req.query.x_id;
+
+        if (!x_id) return res.status(400).send("Missing x_id query parameter");
+
+        // 1. หาข้อมูล User ด้วย x_id
+        const userSnapshot = await db.collection("users").where("x_id", "==", x_id).limit(1).get();
+
+        if (userSnapshot.empty) {
+            return res.status(404).json({
+                success: false,
+                error_code: "USER_NOT_FOUND",
+                message: "ไม่พบข้อมูลผู้ใช้นี้ในระบบ"
+            });
+        }
+
+        const userData = userSnapshot.docs[0].data();
+        
+        // แปลงเวลาให้แสดงผลในรูปแบบ Timestamp Number
+        if (userData.created_at && typeof userData.created_at.toMillis === 'function') {
+            userData.created_at = userData.created_at.toMillis();
+        }
+        if (userData.last_login && typeof userData.last_login.toMillis === 'function') {
+            userData.last_login = userData.last_login.toMillis();
+        }
+
+        // 2. หาประวัติการโดเนททั้งหมดของ User คนนี้ 
+        const donationSnapshot = await db.collection("donate")
+            .where("user_id", "==", userData.user_id)
+            .get();
+
+        let donations = [];
+        let totalDonateAmount = 0;
+
+        donationSnapshot.forEach(doc => {
+            const data = doc.data();
+            if (data.created_at && typeof data.created_at.toMillis === 'function') {
+                data.created_at = data.created_at.toMillis();
+            }
+            if (data.transferred_date && typeof data.transferred_date.toMillis === 'function') {
+                data.transferred_date = data.transferred_date.toMillis();
+            }
+            donations.push({ id: doc.id, ...data });
+            totalDonateAmount += Number(data.amount || 0);
+        });
+
+        // เรียงลำดับจากใหม่ไปเก่า (ทำในโค้ดเพื่อเลี่ยงการต้องสร้าง Composite Index บน Firestore)
+        donations.sort((a, b) => b.created_at - a.created_at);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                user_info: userData,
+                total_donate_amount: totalDonateAmount,
+                donations: donations
+            }
+        });
+    } catch (error) {
+        console.error("Error in getUserInfoByXid:", error);
+        res.status(500).send(error.message);
+    }
+});
