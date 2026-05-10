@@ -1,13 +1,15 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const cors = require("cors")({ origin: true });
 
 admin.initializeApp();
 const db = getFirestore("xiong-birthday-2026");
 
 // 1. API: Save Donate (บันทึกข้อมูลแบบละเอียด)
-exports.saveDonate = functions.https.onRequest(async (req, res) => {
-    if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
+exports.saveDonate = functions.https.onRequest((req, res) => {
+    cors(req, res, async () => {
+        if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
     try {
         const d = req.body;
@@ -29,11 +31,13 @@ exports.saveDonate = functions.https.onRequest(async (req, res) => {
     } catch (error) {
         res.status(500).send(error.message);
     }
+    });
 });
 
 // 2. API: Get Donation All (แสดงข้อมูลทั้งหมด)
-exports.getDonationAll = functions.https.onRequest(async (req, res) => {
-    try {
+exports.getDonationAll = functions.https.onRequest((req, res) => {
+    cors(req, res, async () => {
+        try {
         const snapshot = await db.collection("donate")
             .orderBy("created_at", "desc")
             .get();
@@ -61,11 +65,13 @@ exports.getDonationAll = functions.https.onRequest(async (req, res) => {
     } catch (error) {
         res.status(500).send(error.message);
     }
+    });
 });
 
 // 3. API: Save User (Check if exists by x_id, then save with Auto ID and return data)
-exports.saveUser = functions.https.onRequest(async (req, res) => {
-    if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
+exports.saveUser = functions.https.onRequest((req, res) => {
+    cors(req, res, async () => {
+        if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 
     try {
         // รับค่า x_id, username, account, และ profile_url
@@ -116,11 +122,13 @@ exports.saveUser = functions.https.onRequest(async (req, res) => {
     } catch (error) {
         res.status(500).send(error.message);
     }
+    });
 });
 
 // 4. API: Get User Info & Donations by x_id
-exports.getUserInfoByXid = functions.https.onRequest(async (req, res) => {
-    if (req.method !== "GET") return res.status(405).send("Method Not Allowed");
+exports.getUserInfoByXid = functions.https.onRequest((req, res) => {
+    cors(req, res, async () => {
+        if (req.method !== "GET") return res.status(405).send("Method Not Allowed");
 
     try {
         const x_id = req.query.x_id;
@@ -183,4 +191,5 @@ exports.getUserInfoByXid = functions.https.onRequest(async (req, res) => {
         console.error("Error in getUserInfoByXid:", error);
         res.status(500).send(error.message);
     }
+    });
 });
