@@ -42,8 +42,8 @@
         "function": "getDonationAll"
       },
       {
-        "source": "/getUserHistory",
-        "function": "getUserHistory"
+        "source": "/getUserInfoByXid",
+        "function": "getUserInfoByXid"
       }
     ]
   }
