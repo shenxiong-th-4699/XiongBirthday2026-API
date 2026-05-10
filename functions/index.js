@@ -45,6 +45,27 @@ exports.getDonationAll = functions.https.onRequest((req, res) => {
 
             let allData = [];
             let grandTotal = 0;
+            const userIds = new Set();
+
+            // รวบรวม user_id ทั้งหมดก่อนเพื่อไปดึงโปรไฟล์ทีเดียว (Batch Read)
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.user_id) userIds.add(data.user_id);
+            });
+
+            const userProfiles = {};
+            if (userIds.size > 0) {
+                const userIdArray = Array.from(userIds);
+                // แบ่งเป็นชุดละ 30 (ขีดจำกัดของ where in ใน Firestore)
+                for (let i = 0; i < userIdArray.length; i += 30) {
+                    const chunk = userIdArray.slice(i, i + 30);
+                    const userSnapshot = await db.collection("users").where("user_id", "in", chunk).get();
+                    userSnapshot.forEach(uDoc => {
+                        const uData = uDoc.data();
+                        userProfiles[uData.user_id] = uData.profile_url || "";
+                    });
+                }
+            }
 
             snapshot.forEach(doc => {
                 const data = doc.data();
@@ -55,7 +76,15 @@ exports.getDonationAll = functions.https.onRequest((req, res) => {
                 if (data.transferred_date && typeof data.transferred_date.toMillis === 'function') {
                     data.transferred_date = data.transferred_date.toMillis();
                 }
-                allData.push({ id: doc.id, ...data });
+
+                // แนบ profile_url เข้าไปในข้อมูล donation
+                const donationItem = { 
+                    id: doc.id, 
+                    ...data,
+                    profile_url: userProfiles[data.user_id] || "" 
+                };
+                
+                allData.push(donationItem);
                 
                 // รวมยอดเฉพาะรายการที่ได้รับการอนุมัติ (approved) เท่านั้น
                 if (data.status === "approved") {
