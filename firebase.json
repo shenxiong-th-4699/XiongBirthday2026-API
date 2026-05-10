@@ -1,7 +1,6 @@
 {
   "firestore": {
     "database": "xiong-birthday-2026",
-    "location": "asia-southeast3",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
@@ -21,5 +20,31 @@
   ],
   "storage": {
     "rules": "storage.rules"
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/saveUser",
+        "function": "saveUser"
+      },
+      {
+        "source": "/saveDonate",
+        "function": "saveDonate"
+      },
+      {
+        "source": "/getDonationAll",
+        "function": "getDonationAll"
+      },
+      {
+        "source": "/getUserHistory",
+        "function": "getUserHistory"
+      }
+    ]
   }
 }
